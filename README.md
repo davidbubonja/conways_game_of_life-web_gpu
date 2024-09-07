@@ -1,6 +1,10 @@
 ### Description
 
-This code is the result of me trying to play around and figure out WebGPU and WGSL. I'm trying to figure out the differences and upgrades between GLSL/WGSL WebGL/WebGPU. The compute shaders are 💋💋💋.
+This code is the result of me trying to play around and figure out WebGPU and WGSL. I'm trying to figure out the differences and upgrades between GLSL/WGSL WebGL/WebGPU.
+
+### Conclusion;
+
+The compute shaders are 💋💋💋.
 
 ### How to run the game?
 
