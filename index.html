@@ -1,0 +1,164 @@
+<!doctype html>
+
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <title>Conway's game of life</title>
+</head>
+
+<body
+    style="display: flex; justify-content: center; align-items: center; width: 100vw; height: 100vh; background-color: pink;">
+    <canvas width="512" height="512"></canvas>
+    <!-- module allows top level await -->
+    <script type="module">
+        if (!navigator.gpu) {
+            alert("WEB-GPU API is not suported by your browser. Use newer version - suggested browsers are Chrome / Mozila")
+            throw new Error("Web GPU not supported")
+        }
+
+        const adapter = await navigator.gpu.requestAdapter()
+        if (!adapter) throw new Error("User's GPU not supported by WEB-GPU")
+
+        const GRID_SIZE = 32
+
+        const device = await adapter.requestDevice()
+
+        const canvas = document.querySelector("canvas")
+        const format = navigator.gpu.getPreferredCanvasFormat()
+        const context = canvas.getContext("webgpu")
+        context.configure({device, format})
+
+        const encoder = device.createCommandEncoder()
+        const currentTexture = context.getCurrentTexture()
+
+
+
+        const uniformArray = new Float32Array([GRID_SIZE, GRID_SIZE])
+        const cellVertices = new Float32Array([
+            -0.8, -0.8,
+            0.8, 0.8,
+            -0.8, 0.8,
+
+            -0.8, -0.8,
+            0.8, 0.8,
+            0.8, -0.8,
+        ])
+
+        const uniformBuffer = device.createBuffer({
+            label: "Grid Uniforms",
+            size: uniformArray.byteLength,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        })
+        const vertexBuffer = device.createBuffer({
+            label: "Cell vertex Buffer",
+            size: cellVertices.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        })
+
+        device.queue.writeBuffer(uniformBuffer, 0, uniformArray)
+        device.queue.writeBuffer(vertexBuffer, 0, cellVertices)
+
+        const vertexBufferLayout = {
+            arrayStride: 8,
+            attributes: [{
+                format: "float32x2",
+                offset: 0,
+                shaderLocation: 0,
+            }]
+        }
+
+        const cellShaderModule = device.createShaderModule({
+            label: "Cell Shader",
+            code: `
+                struct VertexInput {
+                    @location(0) pos: vec2f,
+                    @builtin(instance_index) instanceIndex: u32,
+                }
+
+                struct VertexOutput {
+                    @builtin(position) pos: vec4f,
+                    @location(0) @interpolate(flat) index: u32,
+                }
+
+                @group(0) @binding(0) var<uniform> grid: vec2f;
+                @vertex
+                fn vertexMain(input: VertexInput) -> VertexOutput {
+                    let i = f32(input.instanceIndex);
+                    let cell = vec2f(i % grid.x, floor(i / grid.y));
+                    let cellOffset = cell / grid * 2;
+                    let gridPos = (input.pos + 1) / grid - 1 + cellOffset;
+
+                    var output: VertexOutput;
+                    output.pos = vec4f(gridPos, 0, 1);
+                    output.index = input.instanceIndex;
+                    return output;
+                }
+
+                @fragment
+                fn fragMain(@location(0) @interpolate(flat) index: u32) -> @location(0) vec4f {
+
+                   let neon_colors: array<vec3f, 6> = array(
+                       vec3f(0.0, 1.0, 0.5),   // Neon green
+                       vec3f(0.0, 0.5, 1.0),   // Neon blue
+                       vec3f(1.0, 0.0, 0.5),   // Neon pink
+                       vec3f(0.5, 1.0, 0.0),   // Neon yellow-green
+                       vec3f(1.0, 0.5, 0.0),   // Neon orange
+                       vec3f(1.0, 0.0, 0.0)    // Neon red
+                    );
+
+                   // Choose color based on index
+                   let color_index: u32 = index % 6;
+                   let neon_color = neon_colors[color_index];
+                   return vec4f(neon_color, 1); 
+                }
+            `
+        })
+
+        const cellPipeline = device.createRenderPipeline({
+            label: "cell pipeline",
+            layout: "auto",
+            vertex: {
+                module: cellShaderModule,
+                entryPoint: "vertexMain",
+                buffers: [vertexBufferLayout],
+            },
+            fragment: {
+                module: cellShaderModule,
+                entryPoint: "fragMain",
+                targets: [{
+                    format,
+                }]
+            },
+        })
+
+        const bindGroup = device.createBindGroup({
+            label: "cell renderer bind group",
+            layout: cellPipeline.getBindGroupLayout(0),
+            entries: [{
+                binding: 0,
+                resource: {buffer: uniformBuffer},
+            }],
+        })
+
+        const pass = encoder.beginRenderPass({
+            colorAttachments: [{
+                view: currentTexture.createView(),
+                loadOp: "clear",
+                storeOp: "store",
+                clearValue: [0.5, 0.03, 0.8, 1],
+            }]
+        })
+        pass.setPipeline(cellPipeline)
+        pass.setVertexBuffer(0, vertexBuffer)
+        pass.setBindGroup(0, bindGroup)
+        pass.draw(cellVertices.length / 2, GRID_SIZE * GRID_SIZE)
+        pass.end()
+
+        device.queue.submit([encoder.finish()])
+
+
+    </script>
+</body>
+
+</html>
